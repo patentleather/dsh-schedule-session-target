@@ -1,0 +1,12 @@
+# 依赖与构建产物
+node_modules/
+*.log
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 插件运行期状态（正常运行落在 %DSH_HOME%\storages，不在仓库内）
+schedule_session_target.json

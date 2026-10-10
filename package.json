@@ -1,0 +1,32 @@
+{
+  "name": "dsh-schedule-session-target",
+  "version": "1.0.0",
+  "private": true,
+  "description": "定时任务执行会话：为官方 schedule 任务选择「关联会话（原会话）」或「新会话（每次触发新建会话）」，并在「自动化任务」看板上调整。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,5 @@
+# 本组合包（bundle）的配置层：由 dsh 在 profile 列出本包时应用。
+# 插件行按包名引用，Node 的模块解析才能找到已安装的代码。
+- insert:
+    - id: schedule-session-target
+      name: 'dsh-schedule-session-target'
