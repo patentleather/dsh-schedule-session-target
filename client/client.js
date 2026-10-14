@@ -19,8 +19,11 @@ window.__ModuleLoader__.load({
     const BOARD_PANEL_ID = 'schedules';
     const STATE_URL = '/plugins/schedule-session-target/state';
     const SET_URL = '/plugins/schedule-session-target/set';
+    const RUN_URL = '/plugins/schedule-session-target/run';
     const OPEN_STORAGE_KEY = 'dsh.schedule-session-target.open.v1';
     const POLL_MS = 5000;
+    /** 「立即执行」的二次确认窗口（毫秒）。 */
+    const CONFIRM_MS = 4000;
 
     const CSS = [
       '.sst-root{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;z-index:70;pointer-events:auto;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-primary,#e5e7eb)}',
@@ -50,6 +53,8 @@ window.__ModuleLoader__.load({
       '.sst-seg button+button{border-left:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.3))}',
       '.sst-seg button.sst-on{color:var(--dsw-alias-brand-primary,#4f8cff);background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.18));font-weight:600}',
       '.sst-seg button:disabled{opacity:.55;cursor:default}',
+      '.sst-btn.sst-warn{color:var(--dsw-alias-state-warning-primary,#f59e0b);border-color:var(--dsw-alias-state-warning-primary,#f59e0b)}',
+      '.sst-ok{color:var(--dsw-alias-state-success-primary,#22c55e)}',
       '.sst-foot{padding:7px 12px;border-top:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.22));color:var(--dsw-alias-label-secondary,#9ca3af);font-size:11px;display:flex;gap:10px;align-items:center}',
       '.sst-err{color:var(--dsw-alias-state-error-primary,#ef4444)}',
     ].join('');
@@ -112,6 +117,9 @@ window.__ModuleLoader__.load({
       const [snapshot, setSnapshot] = React.useState(null);
       const [error, setError] = React.useState('');
       const [busyKey, setBusyKey] = React.useState('');
+      const [confirmKey, setConfirmKey] = React.useState('');
+      const [runningKey, setRunningKey] = React.useState('');
+      const [runNote, setRunNote] = React.useState(null);
 
       React.useEffect(() => {
         if (!onBoard) return undefined;
@@ -134,6 +142,13 @@ window.__ModuleLoader__.load({
           window.clearInterval(timer);
         };
       }, [onBoard]);
+
+      // 「立即执行」的二次确认：几秒内不再点就自动撤销
+      React.useEffect(() => {
+        if (confirmKey === '') return undefined;
+        const timer = setTimeout(() => setConfirmKey(''), CONFIRM_MS);
+        return () => clearTimeout(timer);
+      }, [confirmKey]);
 
       if (!onBoard) return null;
 
@@ -160,6 +175,36 @@ window.__ModuleLoader__.load({
           })
           .catch((failure) => setError(String(failure && failure.message ? failure.message : failure)))
           .then(() => setBusyKey(''));
+      };
+
+      /** 立即执行一次：第一次点进入确认态，第二次点真正触发。 */
+      const runTask = (task) => {
+        if (runningKey !== '' || busyKey !== '') return;
+        if (confirmKey !== task.key) {
+          setRunNote(null);
+          setConfirmKey(task.key);
+          return;
+        }
+        setConfirmKey('');
+        setRunningKey(task.key);
+        const url = RUN_URL +
+          '?sessionId=' + encodeURIComponent(task.sessionId) +
+          '&id=' + encodeURIComponent(task.id);
+        requestJson(url, { method: 'POST' })
+          .then((value) => {
+            setSnapshot(value);
+            const run = value.run;
+            if (run !== null && run !== undefined && run.ok === true) {
+              setRunNote({ ok: true, text: '已触发 → ' + shortSession(run.sessionId) });
+            } else {
+              setRunNote({ ok: false, text: run !== null && run !== undefined && run.error ? String(run.error) : '执行失败' });
+            }
+          })
+          .catch((failure) => setRunNote({
+            ok: false,
+            text: String(failure && failure.message ? failure.message : failure),
+          }))
+          .then(() => setRunningKey(''));
       };
 
       if (!open) {
@@ -198,7 +243,9 @@ window.__ModuleLoader__.load({
                 onClick: () => {
                   if (typeof props.openSession === 'function') props.openSession(lastRun.runSessionId);
                 },
-              }, '上次执行 → ' + shortSession(lastRun.runSessionId) + (lastRun.fallback === true ? '（退回）' : '')),
+              }, '上次执行 → ' + shortSession(lastRun.runSessionId)
+                + (lastRun.manual === true ? '（手动）' : '')
+                + (lastRun.fallback === true ? '（退回）' : '')),
           ),
           h('div', { className: 'sst-seg' },
             h('button', {
@@ -214,6 +261,13 @@ window.__ModuleLoader__.load({
               onClick: () => setTarget(task, 'new'),
             }, '新会话'),
           ),
+          h('button', {
+            type: 'button',
+            className: 'sst-btn' + (confirmKey === task.key ? ' sst-warn' : ''),
+            disabled: busy || runningKey === task.key,
+            title: '不等定时，立刻按这条任务的设置执行一次；定时计划不变',
+            onClick: () => runTask(task),
+          }, runningKey === task.key ? '执行中…' : (confirmKey === task.key ? '确认执行?' : '立即执行')),
         );
       });
 
@@ -239,6 +293,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'sst-foot' },
             h('span', null, '关联会话 = 投递回任务绑定的原会话（官方行为）'),
             h('span', null, '新会话 = 每次触发都新建一个会话执行'),
+            h('span', null, '立即执行 = 不等定时跑一次，不改计划'),
+            runNote === null
+              ? null
+              : h('span', { className: runNote.ok ? 'sst-ok' : 'sst-err' }, runNote.text),
             snapshot !== null && snapshot.intercepted === false
               ? h('span', { className: 'sst-err' }, '宿主未接管投递，新会话设置不会生效')
               : null,

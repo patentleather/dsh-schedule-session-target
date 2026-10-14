@@ -145,8 +145,15 @@ function installEnvironment(snapshot, React, options = {}) {
   };
 
   globalThis.fetch = (url, fetchOptions) => {
-    calls.push({ url: String(url), method: fetchOptions?.method ?? 'GET' });
-    return Promise.resolve({ ok: true, status: 200, json: async () => snapshot });
+    const target = String(url);
+    calls.push({ url: target, method: fetchOptions?.method ?? 'GET' });
+    if (options.runHttpError === true && target.includes('/run')) {
+      return Promise.resolve({ ok: false, status: 503, json: async () => ({}) });
+    }
+    const body = target.includes('/run') && options.runResult !== undefined
+      ? { ...snapshot, run: options.runResult }
+      : snapshot;
+    return Promise.resolve({ ok: true, status: 200, json: async () => body });
   };
 
   const require = (id) => {
@@ -203,7 +210,10 @@ function mountPlugin(plugin, environment, options = {}) {
 
 function setup(snapshot, options = {}) {
   const mini = createMiniReact();
-  const environment = installEnvironment(snapshot, mini.React, options);
+  const environment = installEnvironment(snapshot, mini.React, {
+    runResult: { ok: true, sessionId: 'session-new-9' },
+    ...options,
+  });
   if (options.open === true) globalThis.window.localStorage.setItem(OPEN_KEY, '1');
   const plugin = makePlugin(environment);
   const contributions = mountPlugin(plugin, environment, options);
@@ -483,7 +493,7 @@ console.log('case 12 — 边角字段：未命名 / 已结束 / 无下次 / 退�
         scheduledAt: null,
         frequency: '仅一次',
         target: 'session',
-        lastRun: { key: 'session-orig|schedule-9', runSessionId: longSession, at: '2026-01-01T00:00:00.000Z', fallback: true },
+        lastRun: { key: 'session-orig|schedule-9', runSessionId: longSession, at: '2026-01-01T00:00:00.000Z', fallback: true, manual: true },
       },
       {
         key: 'session-orig|schedule-8',
@@ -505,6 +515,7 @@ console.log('case 12 — 边角字段：未命名 / 已结束 / 无下次 / 退�
   check('已结束状态有标注', text.includes('已结束'), text);
   check('初始快照带出的错误显示在卡片上', text.includes('宿主接管曾失败一次'), text);
   check('退回记录有标注', text.includes('（退回）'), text);
+  check('手动执行的记录有标注', text.includes('（手动）'), text);
   check('超长会话 id 被截断', text.includes('session-…') || text.includes('…'), text);
   check('坏时间显示占位而不是乱码日期', text.includes('下次 —'), text);
   mini.unmount();
@@ -545,6 +556,73 @@ console.log('case 14 — 切回「关联会话」与提交失败');
   await new Promise((resolve) => setTimeout(resolve, 6));
   tree = await mini.render(() => Panel(panelProps('schedules')));
   check('提交失败显示错误', textOf(tree).includes('post down'), textOf(tree).slice(0, 200));
+  mini.unmount();
+}
+
+console.log('case 15 — 「立即执行」按钮：二次确认 → 触发 → 结果提示');
+{
+  const { mini, Panel, environment } = setup(SAMPLE_SNAPSHOT, { open: true });
+  let tree = await mini.render(() => Panel(panelProps('schedules')));
+  const runButtons = findAll(tree, (node) => node.type === 'button' && textOf(node) === '立即执行');
+  check('每条任务都有「立即执行」', runButtons.length === 2, 'count=' + runButtons.length);
+  check('底部说明了立即执行的语义', textOf(tree).includes('立即执行 = 不等定时跑一次，不改计划'), textOf(tree));
+
+  await runButtons[0].props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 6));
+  tree = await mini.render(() => Panel(panelProps('schedules')));
+  check('第一次点击进入确认态', textOf(tree).includes('确认执行?'), textOf(tree));
+  check('确认态尚未发出 POST', environment.calls.filter((call) => call.method === 'POST').length === 0,
+    JSON.stringify(environment.calls.filter((call) => call.method === 'POST')));
+
+  const confirmButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '确认执行?')[0];
+  await confirmButton.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 6));
+  tree = await mini.render(() => Panel(panelProps('schedules')));
+  const posted = environment.calls.filter((call) => call.method === 'POST');
+  check('第二次点击才发出 POST', posted.length === 1, JSON.stringify(posted));
+  check('POST 命中 run 路由且带对任务参数',
+    posted[0]?.url.includes('/plugins/schedule-session-target/run') &&
+    posted[0]?.url.includes('id=schedule-1') && posted[0]?.url.includes('sessionId=session-orig'),
+    JSON.stringify(posted));
+  check('显示已触发与落点', textOf(tree).includes('已触发 → session-…9') || textOf(tree).includes('已触发 →'),
+    textOf(tree));
+  mini.unmount();
+}
+
+console.log('case 16 — 立即执行失败时显示原因');
+{
+  const { mini, Panel } = setup(SAMPLE_SNAPSHOT, {
+    open: true,
+    runResult: { ok: false, error: '任务不存在（可能已被删除）' },
+  });
+  let tree = await mini.render(() => Panel(panelProps('schedules')));
+  const first = findAll(tree, (node) => node.type === 'button' && textOf(node) === '立即执行')[0];
+  await first.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 6));
+  tree = await mini.render(() => Panel(panelProps('schedules')));
+  const confirm = findAll(tree, (node) => node.type === 'button' && textOf(node) === '确认执行?')[0];
+  await confirm.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 6));
+  tree = await mini.render(() => Panel(panelProps('schedules')));
+  check('显示失败原因', textOf(tree).includes('任务不存在'), textOf(tree));
+  check('按钮回到未确认态', findAll(tree, (node) => node.type === 'button' && textOf(node) === '立即执行').length === 2,
+    textOf(tree));
+  mini.unmount();
+}
+
+console.log('case 17 — 立即执行遇到 HTTP 失败');
+{
+  const { mini, Panel } = setup(SAMPLE_SNAPSHOT, { open: true, runHttpError: true });
+  let tree = await mini.render(() => Panel(panelProps('schedules')));
+  const first = findAll(tree, (node) => node.type === 'button' && textOf(node) === '立即执行')[0];
+  await first.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 6));
+  tree = await mini.render(() => Panel(panelProps('schedules')));
+  const confirm = findAll(tree, (node) => node.type === 'button' && textOf(node) === '确认执行?')[0];
+  await confirm.props.onClick();
+  await new Promise((resolve) => setTimeout(resolve, 6));
+  tree = await mini.render(() => Panel(panelProps('schedules')));
+  check('显示 HTTP 失败原因', textOf(tree).includes('HTTP 503'), textOf(tree));
   mini.unmount();
 }
 

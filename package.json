@@ -1,8 +1,8 @@
 {
   "name": "dsh-schedule-session-target",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "定时任务执行会话：为官方 schedule 任务选择「关联会话（原会话）」或「新会话（每次触发新建会话）」，并在「自动化任务」看板上调整。",
+  "description": "定时任务执行会话：为官方 schedule 任务选择「关联会话（原会话）」或「新会话（每次触发新建会话）」，并支持在「自动化任务」看板上立即执行一次。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

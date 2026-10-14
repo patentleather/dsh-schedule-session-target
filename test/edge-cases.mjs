@@ -333,10 +333,12 @@ await withHome(async () => {
   check('记录标了退回', state.json.tasks[0].lastRun?.fallback === true);
 });
 
-console.log('6c — 重定向后二次解析失败 → 退回');
+console.log('6c — 新会话只解析一次（没有冗余的二次解析）');
 await withHome(async () => {
   const { ctx, controller, routes } = makeHost({
     catalog: [dueEntry('a')],
+    // 旧实现会在建完会话后再解析一次；第二次失败会误判成「新建失败」而退回原会话。
+    // 现在只解析一次，所以这个「第二次必失败」的假实现不应该影响结果。
     resolveAgent: (sessionId, seen) => (sessionId.startsWith('session-new-') && seen >= 2
       ? { error: new Error('session/writer-held') }
       : undefined),
@@ -344,8 +346,10 @@ await withHome(async () => {
   apply(ctx);
   await callRoute(routes, SET_PATH, SET_PATH + '?sessionId=' + SESSION + '&id=a&target=new');
   const resolved = await controller.resolveAgent(SESSION);
-  check('投递回原会话', resolved.agent.sessionId === SESSION, JSON.stringify(resolved));
-  check('新会话已经建出来了（可能成为空会话）', controller.created.length === 1);
+  check('仍然投递到新会话', resolved.agent.sessionId === 'session-new-1', JSON.stringify(resolved));
+  check('新会话只被解析一次', controller.resolveCount.get('session-new-1') === 1,
+    'seen=' + controller.resolveCount.get('session-new-1'));
+  check('没有误标退回', controller.created.length === 1);
 });
 
 console.log('7 — 改标题失败不影响投递');
