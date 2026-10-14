@@ -75,7 +75,7 @@ node test\edge-cases.mjs     # 错误与兜底：新建失败退回、接管失�
 node test\manual-run.mjs     # 立即执行：两种落点、不改计划、防重复点击、失败上报
 ```
 
-五套共 215 条断言；`lib/index.js` 与 `client/client.js` 行覆盖 100%、函数覆盖 98%。
+五套共 217 条断言；`lib/index.js` 与 `client/client.js` 行覆盖 100%、函数覆盖 98%。
 
 MIT
 

@@ -106,6 +106,20 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /**
+     * 把请求失败翻译成人话。
+     *
+     * 404/405 在这里有特殊含义：DSH 的 `/plugins` 前缀路由（client-modules）对非 GET/HEAD
+     * 一律回 405，所以「插件更新了但宿主还没重启」时，新路由会以 405（而不是 404）暴露出来。
+     */
+    function describeFailure(failure) {
+      const raw = String(failure && failure.message ? failure.message : failure);
+      if (raw === 'HTTP 405' || raw === 'HTTP 404') {
+        return '宿主还没有这条路由（插件更新后需重启 DSH）：' + raw;
+      }
+      return raw;
+    }
+
     function Panel(props) {
       const usePanelInfo = props.usePanelInfo;
       const activePanelId = typeof usePanelInfo === 'function'
@@ -202,7 +216,7 @@ window.__ModuleLoader__.load({
           })
           .catch((failure) => setRunNote({
             ok: false,
-            text: String(failure && failure.message ? failure.message : failure),
+            text: describeFailure(failure),
           }))
           .then(() => setRunningKey(''));
       };

@@ -147,8 +147,8 @@ function installEnvironment(snapshot, React, options = {}) {
   globalThis.fetch = (url, fetchOptions) => {
     const target = String(url);
     calls.push({ url: target, method: fetchOptions?.method ?? 'GET' });
-    if (options.runHttpError === true && target.includes('/run')) {
-      return Promise.resolve({ ok: false, status: 503, json: async () => ({}) });
+    if (options.runHttpError !== undefined && options.runHttpError !== false && target.includes('/run')) {
+      return Promise.resolve({ ok: false, status: options.runHttpError, json: async () => ({}) });
     }
     const body = target.includes('/run') && options.runResult !== undefined
       ? { ...snapshot, run: options.runResult }
@@ -612,18 +612,30 @@ console.log('case 16 — 立即执行失败时显示原因');
 
 console.log('case 17 — 立即执行遇到 HTTP 失败');
 {
-  const { mini, Panel } = setup(SAMPLE_SNAPSHOT, { open: true, runHttpError: true });
-  let tree = await mini.render(() => Panel(panelProps('schedules')));
-  const first = findAll(tree, (node) => node.type === 'button' && textOf(node) === '立即执行')[0];
-  await first.props.onClick();
-  await new Promise((resolve) => setTimeout(resolve, 6));
-  tree = await mini.render(() => Panel(panelProps('schedules')));
-  const confirm = findAll(tree, (node) => node.type === 'button' && textOf(node) === '确认执行?')[0];
-  await confirm.props.onClick();
-  await new Promise((resolve) => setTimeout(resolve, 6));
-  tree = await mini.render(() => Panel(panelProps('schedules')));
-  check('显示 HTTP 失败原因', textOf(tree).includes('HTTP 503'), textOf(tree));
-  mini.unmount();
+  const runWithStatus = async (status) => {
+    const { mini, Panel } = setup(SAMPLE_SNAPSHOT, { open: true, runHttpError: status });
+    let tree = await mini.render(() => Panel(panelProps('schedules')));
+    const first = findAll(tree, (node) => node.type === 'button' && textOf(node) === '立即执行')[0];
+    await first.props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 6));
+    tree = await mini.render(() => Panel(panelProps('schedules')));
+    const confirm = findAll(tree, (node) => node.type === 'button' && textOf(node) === '确认执行?')[0];
+    await confirm.props.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 6));
+    tree = await mini.render(() => Panel(panelProps('schedules')));
+    const text = textOf(tree);
+    mini.unmount();
+    return text;
+  };
+
+  const generic = await runWithStatus(503);
+  check('普通 HTTP 失败显示状态码', generic.includes('HTTP 503'), generic);
+
+  // 405 是「插件更新了但宿主还没重启」的信号（/plugins 前缀路由对非 GET 一律回 405）
+  const stale = await runWithStatus(405);
+  check('405 翻译成「需要重启 DSH」', stale.includes('需重启 DSH'), stale);
+  const stale404 = await runWithStatus(404);
+  check('404 同样翻译', stale404.includes('需重启 DSH'), stale404);
 }
 
 if (failures.length > 0) {
